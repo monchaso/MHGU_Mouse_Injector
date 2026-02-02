@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CheatTable>
+  <CheatEntries>
+    <CheatEntry>
+      <ID>0</ID>
+      <Description>"Y AXIS"</Description>
+      <VariableType>4 Bytes</VariableType>
+      <Address>250D80CDB48</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>1</ID>
+      <Description>"Y AXIS"</Description>
+      <VariableType>4 Bytes</VariableType>
+      <Address>251D80CDB48</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>2</ID>
+      <Description>"Y AXIS"</Description>
+      <VariableType>4 Bytes</VariableType>
+      <Address>252D80CDB48</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>3</ID>
+      <Description>"X AXIS"</Description>
+      <VariableType>4 Bytes</VariableType>
+      <Address>250D80CDB4C</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>4</ID>
+      <Description>"X AXIS"</Description>
+      <VariableType>4 Bytes</VariableType>
+      <Address>251D80CDB4C</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>5</ID>
+      <Description>"X AXIS"</Description>
+      <VariableType>4 Bytes</VariableType>
+      <Address>252D80CDB4C</Address>
+    </CheatEntry>
+  </CheatEntries>
+</CheatTable>

@@ -1,0 +1,295 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CheatTable CheatEngineTableVersion="45">
+  <CheatEntries>
+    <CheatEntry>
+      <ID>100</ID>
+      <Description>"MHGU Mouse Camera Injector [Y-Axis Offset Fix]"</Description>
+      <Options moHideChildren="0"/>
+      <VariableType>Auto Assembler Script</VariableType>
+      <AssemblerScript>[ENABLE]
+{$lua}
+if syntaxcheck then return end
+
+print("&gt;&gt;&gt; Starting Offset Hook Scan...")
+
+-- PATTERNS
+local pattern_x_right = "89 04 2E 8B 44 24 6C 8D 68 01 89 E8 89 44 24 6C 8B 44 24 70 8D 68 02"
+local pattern_x_left  = "89 04 2E 8B 44 24 64 8D 68 01 89 E8 89 44 24 64 8B 44 24 68 8D 68 02"
+local pattern_y_up    = "89 04 2E 8B 44 24 60 8D 68 01 89 E8 89 44 24 60 8B 44 24 64 8D 68 02"
+local pattern_y_down  = "89 04 2E 8B 44 24 68 8D 68 01 89 E8 89 44 24 68 8B 44 24 6C 8D 68 02"
+
+function scanPattern(pattern, name)
+    local ms = createMemScan()
+    ms.firstScan(soExactValue, vtByteArray, rtRounded, pattern, "", 0, 0x7FFFFFFFFFFFFFFF, "+X", fsmAligned, "1", true, false, false, false)
+    ms.waitTillDone()
+    local rec = createFoundList(ms)
+    rec.initialize()
+    local head = 0
+    if rec.Count &gt; 0 then head = tonumber(rec.Address[0], 16) end
+    rec.destroy()
+    ms.destroy()
+    if head == 0 then print("FAILED: " .. name) else print(string.format("SUCCESS: %s at %X", name, head)) end
+    return head
+end
+
+local addrXR = scanPattern(pattern_x_right, "X Right")
+local addrXL = scanPattern(pattern_x_left,  "X Left ")
+local addrYU = scanPattern(pattern_y_up,    "Y Up   ") -- Target: 89 04 2E
+local addrYD = scanPattern(pattern_y_down,  "Y Down ") -- Target: 89 04 2E
+
+if addrXR == 0 or addrXL == 0 or addrYU == 0 or addrYD == 0 then error("FATAL: Pattern missing.") end
+
+-- ALLOCATE NEAR
+local hookMem = allocateMemory(4096, addrXR)
+if hookMem == 0 then error("Alloc Failed") end
+registerSymbol("mhgu_hook_mem", hookMem)
+print(string.format("Allocated Near Memory at %X", hookMem))
+
+-- SHARED VARS
+local pBase   = hookMem
+local pOffset = hookMem + 8
+registerSymbol("pCameraBase", pBase)
+registerSymbol("pCameraOffset", pOffset)
+
+-- Helper
+local function wb(addr, ...) for i,v in ipairs({...}) do writeByte(addr + i - 1, v) end end
+local function wq(addr, val) writeQword(addr, val) end
+local function wd(addr, val) writeInteger(addr, val) end
+
+-- CREATE HOOK FUNCTION (OFFSET SUPPORT)
+function createHook(name, targetAddr, memOffset, symbolPointerName, isYAxis)
+    local codeStart = hookMem + memOffset
+    local cursor = codeStart
+    
+    -- HOOK: 5-BYTE JMP
+    local hookAddr = targetAddr -- Default: Hook at pattern match
+    local bytesToCopy = 7 -- Default: 3 bytes (89 04 2E) + 4 bytes next
+    local bytesToNop = 2 -- Default: 7 - 5 = 2
+    local copyAddr = targetAddr
+
+    -- FOR Y-AXIS: FIND SAFE OFFSET (MOV RSI, Imm64 -> 48 BE ...) BACKWARDS
+    if isYAxis then
+        print("Scaning Backwards for Safe Hook (MOV RSI)...")
+        local safeAddr = 0
+        -- Check up to 20 bytes back
+        for i=1, 25 do
+            local checkAddr = targetAddr - i
+            local b = readBytes(checkAddr, 2, true)
+            if b and b[1] == 0x48 and b[2] == 0xBE then
+                safeAddr = checkAddr
+                print(string.format("FOUND SAFE HOOK (MOV RSI) at %X (Offset -%d)", safeAddr, i))
+                break -- Found it
+            end
+        end
+        
+        if safeAddr ~= 0 then
+            hookAddr = safeAddr
+            -- Calculate distance to original Target
+            local distance = targetAddr - safeAddr
+            -- We hook 'MOV RSI' (10 bytes)
+            -- We want to copy EVERYTHING from safeAddr to targetAddr + 3 (end of write)
+            -- Distance (e.g. 14) + 3 bytes (89 04 2E) = 17 bytes minimum.
+            -- Actually, we copy until we cover the 5 bytes we overwrite at hookAddr.
+            -- Since 'MOV RSI' is 10 bytes, we overwrite 5 bytes of it.
+            -- We need to execute the full 10 bytes in trampoline.
+            -- Then execute the gap bytes (e.g. MOV EAX...).
+            -- Then execute the Write (MOV [RSI+RBP], EAX) -> AND Capture Pointers here!
+            
+            -- STRATEGY: 
+            -- Copy from SafeAddr to TargetAddr + 3 (Total Length)
+            local length = distance + 3 
+            copyAddr = safeAddr
+            bytesToCopy = length
+            bytesToNop = 5 -- We overwrite 5 bytes of MOV RSI (10 bytes total)
+            -- The remaining 5 bytes of MOV RSI stay in place? 
+            -- NO! We jump away. We must NOP the rest or let JMP overwrite.
+            -- MOV RSI is 10 bytes. JMP is 5 bytes. 
+            -- We NOP 5 bytes.
+        else
+            print("WARNING: Could not find Safe Hook (MOV RSI). Using Standard Hook (Risky).")
+        end
+    end
+
+    -- 1. TRAMPOLINE PAYLOAD
+    -- A. Execute Copied Bytes (The original code we hooked/skipped)
+    -- We need to execute instructions.
+    -- X-Axis: Just copy 7 bytes.
+    -- Y-Axis: Copy 'MOV RSI...' (10) + 'Gap...' (4) + 'Write...' (3)
+    
+    local originalBytes = readBytes(copyAddr, bytesToCopy, true)
+    for i=1, bytesToCopy do writeByte(cursor + i - 1, originalBytes[i]) end
+    
+    -- IMPORTANT: For Disable Toggle, we need pointer to the 'Write Instruction' copy in trampoline.
+    -- X-Axis: It's at start of copy.
+    -- Y-Axis: It's at end of copy (TargetAddr).
+    local writeInstrOffsetInTrampoline = 0
+    if isYAxis then
+        writeInstrOffsetInTrampoline = (targetAddr - copyAddr)
+    end
+    registerSymbol(symbolPointerName, cursor + writeInstrOffsetInTrampoline)
+    
+    cursor = cursor + bytesToCopy
+    
+    -- B. Capture Pointers (Valid here because RSI/RBP are set/used)
+    wb(cursor, 0x50) -- push rax
+    cursor = cursor + 1
+    wb(cursor, 0x48, 0xB8); cursor = cursor + 2
+    wq(cursor, pBase); cursor = cursor + 8
+    wb(cursor, 0x48, 0x89, 0x30); cursor = cursor + 3  -- mov [pBase], rsi
+    wb(cursor, 0x48, 0xB8); cursor = cursor + 2
+    wq(cursor, pOffset); cursor = cursor + 8
+    wb(cursor, 0x48, 0x89, 0x28); cursor = cursor + 3  -- mov [pOffset], rbp
+    wb(cursor, 0x58) -- pop rax
+    cursor = cursor + 1
+    
+    -- C. Jump Back
+    -- Target is copyAddr + bytesToCopy
+    -- But if we hooked a 10-byte instruction with 5 bytes, we continue at copyAddr + 5?
+    -- NO. We executed the WHOLE 10 bytes in trampoline.
+    -- So we jump back to copyAddr + 10? 
+    -- Actually, we copied `bytesToCopy`. This includes 10 bytes of MOV RSI + 4 bytes + 3 bytes.
+    -- So we return to `copyAddr + bytesToCopy`.
+    
+    local returnTarget = copyAddr + bytesToCopy
+    
+    -- BUT WAIT! We only overwrote 5 bytes at `hookAddr` (`copyAddr`).
+    -- If `bytesToCopy` > 5 (which it is for Y-Axis, it's 17), 
+    -- then we have bytes at `hookAddr + 5` that are "Original Code" we didn't overwrite?
+    -- No, if we jump back to `hookAddr + 5`, we execute "Rest of MOV RSI" (Garbage).
+    -- We must jump back to `hookAddr + 10` (End of MOV RSI) or `hookAddr + bytesToCopy`?
+    -- If we executed `MOV RSI` fully in trampoline, we must return to `Instruction AFTER MOV RSI`.
+    -- Or if we executed gap + write, we return to `Instruction AFTER Write`.
+    
+    -- Correct Logic:
+    -- Hook at `hookAddr`. Overwrite 5 bytes (JMP) + NOPs.
+    -- If we hooked MOV RSI (10 bytes), we MUST NOP all 10 bytes.
+    -- If we execute MOV RSI + Gap + Write in trampoline, we jump back to `Address AFTER Write`.
+    -- So returnTarget is correct (`copyAddr + bytesToCopy`).
+    -- But we must ensure specific bytes at `hookAddr` are NOP'd correctly.
+    
+    -- JUMP BACK (using 5-byte relative if possible, or long if needed? Near Alloc -> 5-byte)
+    wb(cursor, 0xE9)
+    local relOff = returnTarget - (cursor + 5)
+    wd(cursor + 1, relOff)
+    cursor = cursor + 5
+    
+    -- 2. APPLY HOOK
+    -- E9 [Offset]
+    local targetJump = codeStart
+    local sourceJump = hookAddr + 5
+    local jumpOffset = targetJump - sourceJump
+    
+    wb(hookAddr, 0xE9)
+    wd(hookAddr + 1, jumpOffset)
+    
+    -- NOP the rest of the 'Stolen' bytes to avoid execution of garbage
+    -- If Y-Axis: We copied 17 bytes.
+    -- We overwrote 5 bytes.
+    -- We must NOP remaining 12 bytes? 
+    -- Yes, because we executed them in trampoline!
+    local nopsNeeded = bytesToCopy - 5
+    for i=1, nopsNeeded do writeByte(hookAddr + 5 + i - 1, 0x90) end
+    
+    print(string.format("Hooked %s at %X (Near JMP, Copied %d bytes)", name, hookAddr, bytesToCopy))
+end
+
+createHook("X Right", addrXR, 64,  "XRight_Instruction_Ptr", false)
+createHook("X Left",  addrXL,  256, "XLeft_Instruction_Ptr", false)
+createHook("Y Up",    addrYU,  448, "YUp_Instruction_Ptr",   true)
+createHook("Y Down",  addrYD,  640, "YDown_Instruction_Ptr", true)
+
+print("OFFSET HOOKS INJECTED!")
+
+{$asm}
+[DISABLE]
+{$lua}
+if getAddress("mhgu_hook_mem") ~= 0 then
+    de_alloc(getAddress("mhgu_hook_mem"))
+    unregisterSymbol("mhgu_hook_mem")
+end
+unregisterSymbol("CameraAddr_XRight")
+unregisterSymbol("CameraAddr_XLeft")
+unregisterSymbol("CameraAddr_YUp")
+unregisterSymbol("CameraAddr_YDown")
+unregisterSymbol("pCameraBase")
+unregisterSymbol("pCameraOffset")
+unregisterSymbol("XRight_Instruction_Ptr")
+unregisterSymbol("XLeft_Instruction_Ptr")
+unregisterSymbol("YUp_Instruction_Ptr")
+unregisterSymbol("YDown_Instruction_Ptr")
+{$asm}
+</AssemblerScript>
+      <CheatEntries>
+        <CheatEntry>
+          <ID>6</ID>
+          <Description>"Address X Right"</Description>
+          <ShowAsHex>1</ShowAsHex>
+          <VariableType>8 Bytes</VariableType>
+          <Address>CameraAddr_XRight</Address>
+        </CheatEntry>
+        
+        <CheatEntry>
+          <ID>4</ID>
+          <Description>"X Axis Value"</Description>
+          <VariableType>4 Bytes</VariableType>
+          <Address>[pCameraBase]+[pCameraOffset]</Address>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>5</ID>
+          <Description>"Y Axis Value"</Description>
+          <VariableType>4 Bytes</VariableType>
+          <Address>[pCameraBase]+[pCameraOffset]-4</Address>
+        </CheatEntry>
+        
+        <CheatEntry>
+          <ID>99</ID>
+          <Description>"Disable X Right Input"</Description>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[ENABLE]
+XRight_Instruction_Ptr:
+db 90 90 90
+[DISABLE]
+XRight_Instruction_Ptr:
+db 89 04 2E
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>98</ID>
+          <Description>"Disable X Left Input"</Description>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[ENABLE]
+XLeft_Instruction_Ptr:
+db 90 90 90
+[DISABLE]
+XLeft_Instruction_Ptr:
+db 89 04 2E
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>97</ID>
+          <Description>"Disable Y Up Input"</Description>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[ENABLE]
+YUp_Instruction_Ptr:
+db 90 90 90
+[DISABLE]
+YUp_Instruction_Ptr:
+db 89 04 2E
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>96</ID>
+          <Description>"Disable Y Down Input"</Description>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[ENABLE]
+YDown_Instruction_Ptr:
+db 90 90 90
+[DISABLE]
+YDown_Instruction_Ptr:
+db 89 04 2E
+</AssemblerScript>
+        </CheatEntry>
+      </CheatEntries>
+    </CheatEntry>
+  </CheatEntries>
+</CheatTable>

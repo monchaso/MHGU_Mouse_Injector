@@ -1,0 +1,51 @@
+2A5F5CAC827 - 89 04 2E              - mov [rsi+rbp],eax { y up
+ }
+2A5F5CAC82A - 8B 44 24 60           - mov eax,[rsp+60]
+2A5F5CAC82E - 8D 68 01              - lea ebp,[rax+01]
+
+2A5F5CAB1E5 - 89 04 2E              - mov [rsi+rbp],eax { y down
+ }
+2A5F5CAB1E8 - 8B 44 24 68           - mov eax,[rsp+68]
+2A5F5CAB1EC - 8D 68 01              - lea ebp,[rax+01]
+
+2A5F5C53FBA - 89 04 2E              - mov [rsi+rbp],eax { x left
+ }
+2A5F5C53FBD - 8B 44 24 64           - mov eax,[rsp+64]
+2A5F5C53FC1 - 8D 68 01              - lea ebp,[rax+01]
+
+2A6067C000E - 89 44 35 00           - mov [rbp+rsi+00],eax { x right
+ }
+2A6067C0012 - 8B 44 24 6C           - mov eax,[rsp+6C]
+2A6067C0016 - E9 70D649EF           - jmp 2A5F5C5D68B
+
+<?xml version="1.0" encoding="utf-8"?>
+<CheatTable>
+  <CheatEntries>
+    <CheatEntry>
+      <ID>2</ID>
+      <Description>"Camera Base (RSI)"</Description>
+      <ShowAsHex>1</ShowAsHex>
+      <VariableType>8 Bytes</VariableType>
+      <Address>pCameraBase</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>3</ID>
+      <Description>"Camera Offset (RBP)"</Description>
+      <ShowAsHex>1</ShowAsHex>
+      <VariableType>8 Bytes</VariableType>
+      <Address>pCameraOffset</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>4</ID>
+      <Description>"X Axis"</Description>
+      <VariableType>4 Bytes</VariableType>
+      <Address>[pCameraBase]+[pCameraOffset]</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>5</ID>
+      <Description>"Y Axis"</Description>
+      <VariableType>4 Bytes</VariableType>
+      <Address>[pCameraBase]+[pCameraOffset]-4</Address>
+    </CheatEntry>
+  </CheatEntries>
+</CheatTable>
