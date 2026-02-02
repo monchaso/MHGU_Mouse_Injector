@@ -60,6 +60,14 @@ void MouseInput::ProcessRawInput(const Settings &settings) {
           RAWINPUT *raw = (RAWINPUT *)lpb;
           if (raw->header.dwType == RIM_TYPEMOUSE) {
             if (raw->data.mouse.usButtonFlags & RI_MOUSE_WHEEL) {
+              // Check for Hold Modifier
+              if (settings.keyMHHold > 0) {
+                bool isHeld =
+                    (GetAsyncKeyState(settings.keyMHHold) & 0x8000) != 0;
+                if (!isHeld)
+                  continue; // Skip if modifier not held
+              }
+
               short wheelDelta = (short)raw->data.mouse.usButtonData;
               int keyPress = 0;
 
@@ -90,22 +98,26 @@ void MouseInput::ProcessRawInput(const Settings &settings) {
 // Basic update is replaced by ProcessInput with settings
 void MouseInput::ProcessInput(const Settings &settings) {
   // Helper lambda to handle mapping
-  auto HandleMapping = [&](int vKeyMouse, int vKeyBoard, bool &lastState) {
-    if (vKeyBoard == 0)
+  auto HandleMapping = [&](int vKeyMouse, const std::vector<int> &vKeyBoards,
+                           bool &lastState) {
+    if (vKeyBoards.empty())
       return; // No binding
 
     bool isDown = (GetAsyncKeyState(vKeyMouse) & 0x8000) != 0;
     if (isDown != lastState) {
-      SendKey(vKeyBoard, isDown);
+      for (int vk : vKeyBoards) {
+        if (vk > 0)
+          SendKey(vk, isDown);
+      }
       lastState = isDown;
     }
   };
 
-  HandleMapping(VK_LBUTTON, settings.keyLMB, lastLMB);
-  HandleMapping(VK_RBUTTON, settings.keyRMB, lastRMB);
-  HandleMapping(VK_MBUTTON, settings.keyMMB, lastMMB);
-  HandleMapping(VK_XBUTTON1, settings.keyX1, lastX1);
-  HandleMapping(VK_XBUTTON2, settings.keyX2, lastX2);
+  HandleMapping(VK_LBUTTON, settings.keysLMB, lastLMB);
+  HandleMapping(VK_RBUTTON, settings.keysRMB, lastRMB);
+  HandleMapping(VK_MBUTTON, settings.keysMMB, lastMMB);
+  HandleMapping(VK_XBUTTON1, settings.keysX1, lastX1);
+  HandleMapping(VK_XBUTTON2, settings.keysX2, lastX2);
 }
 
 void MouseInput::SendKey(int vk, bool down) {

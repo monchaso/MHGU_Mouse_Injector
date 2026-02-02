@@ -3,11 +3,23 @@
     "invert_y": false,
     "sensitivity_x": 25.0,
     "sensitivity_y": 25.0,
-    "key_lmb": 67,
-    "key_rmb": 0,
-    "key_mmb": 0,
-    "key_x1": 0,
-    "key_x2": 0,
-    "key_mw_up": 70,
-    "key_mw_down": 86
+    "key_lmb": [
+        "C"
+    ],
+    "key_rmb": [
+        "VK_F"
+    ],
+    "key_mmb": [
+        ""
+    ],
+    "key_x1": [
+        "VK_F",
+        "C"
+    ],
+    "key_x2": [
+        "VK_LSHIFT"
+    ],
+    "key_mh_hold": "Q",
+    "key_mw_up": "E",
+    "key_mw_down": "VK_F"
 }
