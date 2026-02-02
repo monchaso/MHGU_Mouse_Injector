@@ -3,7 +3,7 @@
 #include "Core/Scanner.h"
 #include "Core/Unlocker.h"
 #include <iostream>
-#include <thread>
+
 
 // MHGU Camera Instruction AOBs
 // X Right: 89 04 2E 8B 44 24 6C ...
@@ -78,72 +78,84 @@ int main() {
   globalUnlocker = &unlocker;
 
   // 1. Hook X-Right (To Capture Pointers)
-  if (!unlocker.Hook(addrXR)) {
-    std::cerr << "Failed to Hook X-Right!" << std::endl;
-    return 1;
-  }
+  auto applyPatches = [&]() {
+    if (!unlocker.Hook(addrXR))
+      std::cerr << "Failed to Hook X-Right!" << std::endl;
+    if (!unlocker.NopInstruction(addrXL))
+      std::cerr << "Failed to NOP X-Left!" << std::endl;
+    if (!unlocker.NopInstruction(addrYU))
+      std::cerr << "Failed to NOP Y-Up!" << std::endl;
+    if (!unlocker.NopInstruction(addrYD))
+      std::cerr << "Failed to NOP Y-Down!" << std::endl;
+    std::cout << "Injector: ENABLED" << std::endl;
+  };
 
-  // 2. NOP the others to disable fighting
-  if (!unlocker.NopInstruction(addrXL))
-    std::cerr << "Failed to NOP X-Left!" << std::endl;
-  if (!unlocker.NopInstruction(addrYU))
-    std::cerr << "Failed to NOP Y-Up!" << std::endl;
-  if (!unlocker.NopInstruction(addrYD))
-    std::cerr << "Failed to NOP Y-Down!" << std::endl;
-
-  std::cout << "Hooks & Patches Applied!" << std::endl;
+  // Initial Apply
+  applyPatches();
 
   MouseInput input;
-  bool active = false;
+  bool active = true;
+  bool f3Pressed = false;
 
-  // Main Loop
+  std::cout << "\n[Controls]" << std::endl;
+  std::cout << "  F3: Toggle Injector (Enabled/Disabled)" << std::endl;
+  std::cout << "  END: Exit\n" << std::endl;
+
   while (true) {
+    if (GetAsyncKeyState(VK_END) & 0x8000)
+      break;
+
     // Toggle F3
-    if (GetAsyncKeyState(VK_F3) & 1) {
+    bool f3Now = (GetAsyncKeyState(VK_F3) & 0x8000) != 0;
+    if (f3Now && !f3Pressed) {
       active = !active;
-      std::cout << "Injector: " << (active ? "ENABLED" : "DISABLED")
-                << std::endl;
-      if (!active) {
-        // unlocker.Restore(); // Optional: Restore original code when disabled?
+      if (active) {
+        applyPatches();
+      } else {
+        unlocker.Restore();
+        std::cout << "Injector: DISABLED" << std::endl;
       }
     }
+    f3Pressed = f3Now;
 
     if (active) {
-      uintptr_t pBase = unlocker.GetCameraBaseAddr();
-      uintptr_t pOffset = unlocker.GetCameraOffsetAddr();
+      input.Update();
+      float deltaX, deltaY;
+      input.GetDelta(deltaX, deltaY);
 
-      // Read captured pointers
-      uintptr_t baseAddr = mem.Read<uintptr_t>(pBase);
-      uintptr_t offsetVal = mem.Read<uintptr_t>(pOffset);
+      if (deltaX != 0.0f || deltaY != 0.0f) {
+        uintptr_t pBase = unlocker.GetCameraBaseAddr();
+        uintptr_t pOffset = unlocker.GetCameraOffsetAddr();
 
-      if (baseAddr != 0 && offsetVal != 0) {
-        uintptr_t finalX = baseAddr + offsetVal;
-        uintptr_t finalY = finalX - 4; // Y is usually 4 bytes before/after?
-        // Based on previous analysis:
-        // X: 20F10750F7C
-        // Y: 20F10750F78 (4 bytes BEFORE X)
+        uintptr_t baseVal = 0, offsetVal = 0;
+        // Read pointer values from our trampoline storage
+        baseVal = mem.Read<uintptr_t>(pBase);
+        offsetVal = mem.Read<uintptr_t>(pOffset);
 
-        // Read current angles
-        float currentX = mem.Read<float>(finalX);
-        float currentY = mem.Read<float>(finalY);
+        if (baseVal != 0 && offsetVal != 0) {
+          uintptr_t finalX = baseVal + offsetVal;
+          uintptr_t finalY =
+              finalX - 4; // Y is 4 bytes before X based on Cheat Table
 
-        // Get Mouse Delta
-        float deltaX, deltaY;
-        input.GetDelta(deltaX, deltaY);
+          float currentX = mem.Read<float>(finalX);
+          float currentY = mem.Read<float>(finalY);
 
-        // Calculate New
-        float newX, newY;
-        input.CalculateNewAngles(currentX, currentY, deltaX, deltaY, newX,
-                                 newY);
+          float newX = 0.0f, newY = 0.0f;
+          input.CalculateNewAngles(currentX, currentY, deltaX, deltaY, newX,
+                                   newY);
 
-        // Write Back
-        mem.Write<float>(finalX, newX);
-        mem.Write<float>(finalY, newY);
+          mem.Write<float>(finalX, newX);
+          mem.Write<float>(finalY, newY);
+        }
       }
     }
-
-    Sleep(10); // ~100Hz tick rate
+    Sleep(10);
   }
 
+  // Ensure clean exit
+  if (active) {
+    std::cout << "[Exit] Restoring original game code..." << std::endl;
+    unlocker.Restore();
+  }
   return 0;
 }
