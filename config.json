@@ -3,11 +3,11 @@
     "invert_y": false,
     "sensitivity_x": 25.0,
     "sensitivity_y": 25.0,
-    "key_lmb": 0,
+    "key_lmb": 67,
     "key_rmb": 0,
     "key_mmb": 0,
     "key_x1": 0,
     "key_x2": 0,
-    "key_mw_up": 0,
-    "key_mw_down": 0
+    "key_mw_up": 70,
+    "key_mw_down": 86
 }
