@@ -159,7 +159,12 @@ int main() {
         std::cout << "Injector: DISABLED" << std::endl;
       }
     }
-    f3Pressed = f3Now;
+    // Check Process Life (Auto-Exit)
+    if (WaitForSingleObject(mem.hProcess, 0) == WAIT_OBJECT_0) {
+      std::cout << "\n[Info] Target process exited. Closing..." << std::endl;
+      active = false; // Don't try to restore memory
+      break;
+    }
 
     // Check Focus
     bool isFocused = (GetForegroundWindow() == hTargetWnd);
