@@ -22,6 +22,29 @@ const std::string MASK = "xxxxxxxxxxxxxxxxxxxxxxx"; // No wildcards
 
 Unlocker *globalUnlocker = nullptr;
 
+struct EnumData {
+  DWORD pid;
+  HWND hWnd;
+};
+
+BOOL CALLBACK EnumProc(HWND hWnd, LPARAM lParam) {
+  EnumData *data = (EnumData *)lParam;
+  DWORD procId;
+  GetWindowThreadProcessId(hWnd, &procId);
+  // Check if process matches and window is visible (to avoid hidden windows)
+  if (procId == data->pid && IsWindowVisible(hWnd)) {
+    data->hWnd = hWnd;
+    return FALSE; // Stop
+  }
+  return TRUE;
+}
+
+HWND GetWindowHandleFromPID(DWORD pid) {
+  EnumData data = {pid, nullptr};
+  EnumWindows(EnumProc, (LPARAM)&data);
+  return data.hWnd;
+}
+
 BOOL WINAPI ConsoleHandler(DWORD signal) {
   if (signal == CTRL_C_EVENT || signal == CTRL_CLOSE_EVENT) {
     if (globalUnlocker) {
@@ -43,6 +66,16 @@ int main() {
   }
   std::cout << "Attached to Ryujinx (PID: " << mem.processID << ")"
             << std::endl;
+
+  // Get Target Window (For Focus Safety)
+  HWND hTargetWnd = GetWindowHandleFromPID(mem.processID);
+  if (hTargetWnd) {
+    std::cout << "Found Target Window HWND: " << hTargetWnd << std::endl;
+  } else {
+    std::cout
+        << "[Warning] Could not find Ryujinx Window. Focus safety may fail."
+        << std::endl;
+  }
 
   Scanner scanner(&mem);
 
@@ -97,7 +130,6 @@ int main() {
   bool f3Pressed = false;
 
   // Load Config
-  // Load Config
   Settings currentSettings = LoadConfig("config.json");
 
   // Init Raw Input for Wheel
@@ -129,6 +161,12 @@ int main() {
     }
     f3Pressed = f3Now;
 
+    // Check Focus
+    bool isFocused = (GetForegroundWindow() == hTargetWnd);
+    // If we failed to find window, assume focused (fallback)
+    if (!hTargetWnd)
+      isFocused = true;
+
     // Always read monitor
     uintptr_t pBase = unlocker.GetCameraBaseAddr();
     uintptr_t pOffset = unlocker.GetCameraOffsetAddr();
@@ -144,10 +182,17 @@ int main() {
       int16_t valX = mem.Read<int16_t>(finalX);
       int16_t valY = mem.Read<int16_t>(finalY);
 
-      printf("MONITOR [Active:%d] | X: %d (0x%04X) | Y: %d (0x%04X)      \r",
-             active, valX, (uint16_t)valX, valY, (uint16_t)valY);
+      if (isFocused || !active) {
+        printf("MONITOR [Active:%d] [Focus:%d] | X: %d (0x%04X) | Y: %d "
+               "(0x%04X)      \r",
+               active, isFocused, valX, (uint16_t)valX, valY, (uint16_t)valY);
+      } else {
+        printf("MONITOR [Active:%d] [PAUSED]   | X: %d (0x%04X) | Y: %d "
+               "(0x%04X)      \r",
+               active, valX, (uint16_t)valX, valY, (uint16_t)valY);
+      }
 
-      if (active) {
+      if (active && isFocused) {
         input.ProcessInput(currentSettings);    // Process Buttons & Key Mapping
         input.ProcessRawInput(currentSettings); // Process Wheel (Pump Messages)
 

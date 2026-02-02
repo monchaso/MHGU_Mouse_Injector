@@ -1,7 +1,7 @@
 #include "MouseInput.h"
 #include <iostream>
+#include <thread>
 #include <windows.h>
-
 
 // Helper window proc
 LRESULT CALLBACK RawInputWndProc(HWND hwnd, UINT msg, WPARAM wParam,
@@ -61,15 +61,21 @@ void MouseInput::ProcessRawInput(const Settings &settings) {
           if (raw->header.dwType == RIM_TYPEMOUSE) {
             if (raw->data.mouse.usButtonFlags & RI_MOUSE_WHEEL) {
               short wheelDelta = (short)raw->data.mouse.usButtonData;
+              int keyPress = 0;
+
               if (wheelDelta > 0 && settings.keyWheelUp > 0) {
-                // Wheel Up -> Key Down, then Up?
-                // Wheel is discrete. A "scroll" is instantaneous.
-                // We simulate a quick tap.
-                SendKey(settings.keyWheelUp, true);
-                SendKey(settings.keyWheelUp, false);
+                keyPress = settings.keyWheelUp;
               } else if (wheelDelta < 0 && settings.keyWheelDown > 0) {
-                SendKey(settings.keyWheelDown, true);
-                SendKey(settings.keyWheelDown, false);
+                keyPress = settings.keyWheelDown;
+              }
+
+              if (keyPress > 0) {
+                // Run in detached thread to avoid blocking main loop
+                std::thread([this, keyPress]() {
+                  SendKey(keyPress, true);
+                  Sleep(50);
+                  SendKey(keyPress, false);
+                }).detach();
               }
             }
           }
