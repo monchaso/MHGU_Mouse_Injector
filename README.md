@@ -36,6 +36,16 @@ The executable `main.exe` will be generated in the `build/` (or `build/Debug/`) 
 3.  The injector will wait for `Ryujinx.exe`.
 4.  Once attached, it will hook into the camera memory.
 
+> [!IMPORTANT]
+> **Address Finding**: When you first launch the injector, you **MUST move the camera** in-game using the emulator's controls. The injector scans for the camera values changing.
+> *   **Success**: The camera controls will be disabled in the emulator, and the mouse will take over.
+> *   **Timeout**: If the addresses are not found within ~30 seconds of movement, restart the `main.exe` and try again.
+
+## Recommended Controls
+The following screenshot demonstrates the recommended control mapping in Ryujinx to work best with the default `config.json` settings:
+
+![Recommended Controls](Recommended_Controls.png)
+
 ### Controls
 *   **F3**: Toggle Injector (Enabled/Disabled). also reloads `config.json`.
 *   **END**: Exit the injector.
@@ -46,7 +56,7 @@ The tool uses a `config.json` file for keybindings and sensitivity.
 *   **String Keys**: You can use key names like `"VK_SHIFT"`, `"SPACE"`, `"C"`, `"VK_LBUTTON"`.
 *   **Multi-Key**: Assign multiple keys to one button: `"key_rmb": ["VK_SHIFT", "C"]`.
 
-### Example Config
+### Default Config
 ```json
 {
     "invert_x": false,
