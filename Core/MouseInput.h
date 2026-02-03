@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <windows.h>
 
-
 class MouseInput {
 public:
   MouseInput();

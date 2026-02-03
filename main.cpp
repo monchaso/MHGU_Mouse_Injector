@@ -160,7 +160,10 @@ int main() {
       }
     }
     // Check Process Life (Auto-Exit)
-    if (WaitForSingleObject(mem.hProcess, 0) == WAIT_OBJECT_0) {
+    DWORD exitCode = 0;
+    if (WaitForSingleObject(mem.hProcess, 0) == WAIT_OBJECT_0 ||
+        (GetExitCodeProcess(mem.hProcess, &exitCode) &&
+         exitCode != STILL_ACTIVE)) {
       std::cout << "\n[Info] Target process exited. Closing..." << std::endl;
       active = false; // Don't try to restore memory
       break;

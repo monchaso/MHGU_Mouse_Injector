@@ -1,4 +1,5 @@
 #include "Memory.h"
+#include <tlhelp32.h>
 
 Memory::Memory() {}
 

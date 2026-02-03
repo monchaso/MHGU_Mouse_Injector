@@ -4,17 +4,17 @@
     "sensitivity_x": 25.0,
     "sensitivity_y": 25.0,
     "key_lmb": [
-        "C"
+        "G"
     ],
     "key_rmb": [
         "VK_F"
     ],
     "key_mmb": [
-        ""
+        "VK_Z"
     ],
     "key_x1": [
         "VK_F",
-        "C"
+        "G"
     ],
     "key_x2": [
         "VK_LSHIFT"

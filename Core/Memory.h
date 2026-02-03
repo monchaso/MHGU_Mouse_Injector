@@ -1,9 +1,8 @@
 #pragma once
-#include <windows.h>
 #include <iostream>
 #include <string>
-#include <tlhelp32.h>
 #include <vector>
+#include <windows.h>
 
 
 class Memory {
