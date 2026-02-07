@@ -5,7 +5,7 @@ A C++ external tool to inject mouse and keyboard control into **Monster Hunter G
 ## Compatibility
 *   **OS**: Windows 10/11 x64
 *   **Emulator**: Ryujinx 1.3.3
-*   **Game**: Monster Hunter Generations Ultimate 1.4 (Switch)
+*   **Game**: Monster Hunter Generations Ultimate 1.4 (Switch) [tested with US game version]
 
 ## Usage
 1.  Launch **Ryujinx** and start **MHGU**.
