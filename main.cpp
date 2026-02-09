@@ -77,39 +77,29 @@ int main() {
         << std::endl;
   }
 
+  // Initialize Core Components
   Scanner scanner(&mem);
-
-  uintptr_t addrXR = 0, addrXL = 0, addrYU = 0, addrYD = 0;
-
-  std::cout << "Scanning for Camera Instructions..." << std::endl;
-  while (addrXR == 0 || addrXL == 0 || addrYU == 0 || addrYD == 0) {
-    if (addrXR == 0)
-      addrXR = scanner.ScanPattern(AOB_XR, MASK);
-    if (addrXL == 0)
-      addrXL = scanner.ScanPattern(AOB_XL, MASK);
-    if (addrYU == 0)
-      addrYU = scanner.ScanPattern(AOB_YU, MASK);
-    if (addrYD == 0)
-      addrYD = scanner.ScanPattern(AOB_YD, MASK);
-
-    if (addrXR == 0 || addrXL == 0 || addrYU == 0 || addrYD == 0) {
-      std::cout << "Waiting for patterns... (XR:" << (bool)addrXR
-                << " XL:" << (bool)addrXL << " YU:" << (bool)addrYU
-                << " YD:" << (bool)addrYD << ")" << std::endl;
-      Sleep(1000);
-    }
-  }
-
-  std::cout << "Found All Patterns!" << std::endl;
-  std::cout << "XR: " << std::hex << addrXR << std::endl;
-  std::cout << "XL: " << std::hex << addrXL << std::endl;
-  std::cout << "YU: " << std::hex << addrYU << std::endl;
-  std::cout << "YD: " << std::hex << addrYD << std::endl;
-
   Unlocker unlocker(&mem);
   globalUnlocker = &unlocker;
 
-  // 1. Hook X-Right (To Capture Pointers)
+  MouseInput input;
+  // Load Config
+  Settings currentSettings = LoadConfig("config.json");
+  // Init Raw Input for Wheel
+  if (!input.InitializeRawInput()) {
+    std::cerr
+        << "[Warning] Raw Input Init Failed. Wheel mapping may not work.\n";
+  }
+
+  // Scanning State
+  uintptr_t addrXR = 0, addrXL = 0, addrYU = 0, addrYD = 0;
+  bool addressesFound = false;
+  DWORD lastScanTime = 0;
+
+  // Injection State
+  bool active = true;
+  bool f3Pressed = false;
+
   auto applyPatches = [&]() {
     if (!unlocker.Hook(addrXR))
       std::cerr << "Failed to Hook X-Right!" << std::endl;
@@ -122,26 +112,11 @@ int main() {
     std::cout << "Injector: ENABLED" << std::endl;
   };
 
-  // Initial Apply
-  applyPatches();
-
-  MouseInput input;
-  bool active = true;
-  bool f3Pressed = false;
-
-  // Load Config
-  Settings currentSettings = LoadConfig("config.json");
-
-  // Init Raw Input for Wheel
-  if (!input.InitializeRawInput()) {
-    std::cerr
-        << "[Warning] Raw Input Init Failed. Wheel mapping may not work.\n";
-  }
-
   std::cout << "\n[Controls]" << std::endl;
   std::cout << "  F3: Toggle Injector (Enabled/Disabled) [Reloads Config]"
             << std::endl;
   std::cout << "  END: Exit\n" << std::endl;
+  std::cout << "Scanning for Camera Instructions (background)..." << std::endl;
 
   while (true) {
     if (GetAsyncKeyState(VK_END) & 0x8000)
@@ -153,12 +128,18 @@ int main() {
       active = !active;
       if (active) {
         currentSettings = LoadConfig("config.json"); // Reload on Enable
-        applyPatches();
+        if (addressesFound) {
+          applyPatches();
+        }
       } else {
-        unlocker.Restore();
+        if (addressesFound) {
+          unlocker.Restore();
+        }
         std::cout << "Injector: DISABLED" << std::endl;
       }
     }
+    f3Pressed = f3Now;
+
     // Check Process Life (Auto-Exit)
     DWORD exitCode = 0;
     if (WaitForSingleObject(mem.hProcess, 0) == WAIT_OBJECT_0 ||
@@ -169,61 +150,112 @@ int main() {
       break;
     }
 
-    // Check Focus
-    bool isFocused = (GetForegroundWindow() == hTargetWnd);
-    // If we failed to find window, assume focused (fallback)
-    if (!hTargetWnd)
-      isFocused = true;
+    // Periodic Tasks (Scanning & Window Check) - Every 1 second
+    if (GetTickCount() - lastScanTime > 1000) {
+      lastScanTime = GetTickCount();
 
-    // Always read monitor
-    uintptr_t pBase = unlocker.GetCameraBaseAddr();
-    uintptr_t pOffset = unlocker.GetCameraOffsetAddr();
-
-    uintptr_t baseVal = 0, offsetVal = 0;
-    baseVal = mem.Read<uintptr_t>(pBase);
-    offsetVal = mem.Read<uintptr_t>(pOffset);
-
-    if (baseVal != 0 && offsetVal != 0) {
-      uintptr_t finalX = baseVal + offsetVal;
-      uintptr_t finalY = finalX - 4;
-
-      int16_t valX = mem.Read<int16_t>(finalX);
-      int16_t valY = mem.Read<int16_t>(finalY);
-
-      if (isFocused || !active) {
-        printf("MONITOR [Active:%d] [Focus:%d] | X: %d (0x%04X) | Y: %d "
-               "(0x%04X)      \r",
-               active, isFocused, valX, (uint16_t)valX, valY, (uint16_t)valY);
-      } else {
-        printf("MONITOR [Active:%d] [PAUSED]   | X: %d (0x%04X) | Y: %d "
-               "(0x%04X)      \r",
-               active, valX, (uint16_t)valX, valY, (uint16_t)valY);
+      // Retry Window Handle if missing
+      if (!hTargetWnd) {
+        hTargetWnd = GetWindowHandleFromPID(mem.processID);
+        if (hTargetWnd) {
+          std::cout << "\n[Info] Target Window Found: " << hTargetWnd
+                    << std::endl;
+        }
       }
 
-      if (active && isFocused) {
-        input.ProcessInput(currentSettings);    // Process Buttons & Key Mapping
-        input.ProcessRawInput(currentSettings); // Process Wheel (Pump Messages)
+      // Memory Scanning
+      if (!addressesFound) {
+        if (addrXR == 0)
+          addrXR = scanner.ScanPattern(AOB_XR, MASK);
+        if (addrXL == 0)
+          addrXL = scanner.ScanPattern(AOB_XL, MASK);
+        if (addrYU == 0)
+          addrYU = scanner.ScanPattern(AOB_YU, MASK);
+        if (addrYD == 0)
+          addrYD = scanner.ScanPattern(AOB_YD, MASK);
 
-        float deltaX, deltaY;
-        input.GetDelta(deltaX, deltaY);
+        if (addrXR != 0 && addrXL != 0 && addrYU != 0 && addrYD != 0) {
+          addressesFound = true;
+          std::cout << "Found All Patterns!" << std::endl;
+          std::cout << "XR: " << std::hex << addrXR << std::endl;
+          std::cout << "XL: " << std::hex << addrXL << std::endl;
+          std::cout << "YU: " << std::hex << addrYU << std::endl;
+          std::cout << "YD: " << std::hex << addrYD << std::endl;
 
-        if (deltaX != 0.0f || deltaY != 0.0f) {
-          int16_t newX = 0, newY = 0;
-          input.CalculateNewAngles(valX, valY, deltaX, deltaY, newX, newY,
-                                   currentSettings);
-
-          mem.Write<int16_t>(finalX, newX);
-          mem.Write<int16_t>(finalY, newY);
+          // Apply patches immediately if active
+          if (active) {
+            applyPatches();
+          }
         }
       }
     }
+
+    // Check Focus
+    bool isFocused = (GetForegroundWindow() == hTargetWnd);
+    if (!hTargetWnd)
+      isFocused = true; // Fallback to safe-assume if window never found
+
+    // Input Processing (ALWAYS RUNS if Active & Focused)
+    // Allows buttons to work even if addresses are not found yet (e.g. Loading
+    // Screen)
+    if (active && isFocused) {
+      input.ProcessInput(currentSettings);    // Process Buttons & Key Mapping
+      input.ProcessRawInput(currentSettings); // Process Wheel
+    }
+
+    if (addressesFound) {
+      // Read Memory Values for Monitor
+      uintptr_t pBase = unlocker.GetCameraBaseAddr();
+      uintptr_t pOffset = unlocker.GetCameraOffsetAddr();
+
+      uintptr_t baseVal = 0, offsetVal = 0;
+      baseVal = mem.Read<uintptr_t>(pBase);
+      offsetVal = mem.Read<uintptr_t>(pOffset);
+
+      if (baseVal != 0 && offsetVal != 0) {
+        uintptr_t finalX = baseVal + offsetVal;
+        uintptr_t finalY = finalX - 4;
+
+        int16_t valX = mem.Read<int16_t>(finalX);
+        int16_t valY = mem.Read<int16_t>(finalY);
+
+        if (active && isFocused) {
+          printf("MONITOR [Active:1] [Focus:1] | X: %d (0x%04X) | Y: %d "
+                 "(0x%04X)      \r",
+                 valX, (uint16_t)valX, valY, (uint16_t)valY);
+
+          // Injection Logic
+          float deltaX, deltaY;
+          input.GetDelta(deltaX, deltaY);
+
+          if (deltaX != 0.0f || deltaY != 0.0f) {
+            int16_t newX = 0, newY = 0;
+            input.CalculateNewAngles(valX, valY, deltaX, deltaY, newX, newY,
+                                     currentSettings);
+            mem.Write<int16_t>(finalX, newX);
+            mem.Write<int16_t>(finalY, newY);
+          }
+        } else {
+          // Paused / Not Focused
+          printf("MONITOR [Active:%d] [Focus:%d] | X: %d (0x%04X) | Y: %d "
+                 "(0x%04X)      \r",
+                 active, isFocused, valX, (uint16_t)valX, valY, (uint16_t)valY);
+        }
+      }
+    } else {
+      // Scanning
+      printf("MONITOR [Active:%d] [Found:0] | Scanning...                      "
+             "   \r",
+             active);
+    }
+
     Sleep(10);
   }
 
   // Ensure clean exit
   input.CleanupRawInput();
-  if (active) {
-    std::cout << "[Exit] Restoring original game code..." << std::endl;
+  if (active && addressesFound) {
+    std::cout << "\n[Exit] Restoring original game code..." << std::endl;
     unlocker.Restore();
   }
   return 0;
