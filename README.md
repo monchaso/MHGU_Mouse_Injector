@@ -5,7 +5,7 @@ A C++ external tool to inject mouse and keyboard control into **Monster Hunter G
 ## Compatibility
 *   **OS**: Windows 10/11 x64
 *   **Emulator**: Ryujinx 1.3.3
-*   **Game**: Monster Hunter Generations Ultimate 1.4 (Switch)
+*   **Game**: Monster Hunter Generations Ultimate 1.4 (Switch) [tested with US game version]
 
 ## Usage
 1.  Launch **Ryujinx** and start **MHGU**.
@@ -43,7 +43,7 @@ The tool uses a `config.json` file for keybindings and sensitivity.
     "sensitivity_y": 25.0,
     "key_lmb": ["C"],              // Left Click -> C
     "key_rmb": ["VK_F"],           // Right Click -> F
-    "key_mmb": [""],               // Middle Click -> Unbound
+    "key_mmb": ["VK_Z"],           // Middle Click -> Z
     "key_x1": ["VK_F", "C"],       // Mouse Button 4 -> F + C
     "key_x2": ["VK_LSHIFT"],       // Mouse Button 5 -> Left Shift
     "key_mh_hold": "Q",            // Mouse Wheel only works when holding Q
